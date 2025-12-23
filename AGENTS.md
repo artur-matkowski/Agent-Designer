@@ -108,13 +108,15 @@ Tool availability and permissions are defined in opencode config, but **system p
    - If a task is purely analytical, **do not** use write/edit/bash even if technically available.
 
 2. **Bash / Shell**
-   - Allowed by default **only** for safe, read‑only commands, for example:
-     - `ls`, `cat`, `grep`/`rg`, `find` (non‑destructive forms)
+   - Allowed by default **only** for safe, read-only commands, for example:
+     - `ls`, `cat`, `grep`/`rg`, `find` (non-destructive forms)
      - `git status`, `git diff`, `git log`
      - `kubectl get`, `kubectl describe`, log fetch commands
    - Any command that modifies state (files, services, infra, databases) **requires explicit approval** and should be:
      - Shown in the answer first.
      - Justified with a short rationale.
+   - **Any use of shell redirection operators that write to files** (e.g., `>`, `>>`, `2>`, `2>>`, `&>`), including apparently simple commands such as `echo 'text' >> someSystemFile.conf`, MUST be treated as a write operation and is subject to the same rules and approvals as other mutating commands.
+
 
 3. **File editing**
    - Before editing code/infra files:
@@ -165,7 +167,35 @@ Agents should **avoid jumping directly into edits** for large or risky tasks wit
 
 ---
 
-## 5. Prompt Writing Guidelines (For This Project)
+## 5. Prompt Writing & Agent Design Guidelines (For This Project)
+
+This repository is an **agent designer** project. A primary workflow here is:
+- The user describes the agent they want ("I want an agent that will do X and Y")
+- An LLM designs a system prompt and agent definition tailored to that role/task
+- Those agents are later deployed via local bash scripts and tested separately by the user.
+
+Whenever you (as an LLM) are asked to design or initialize an agent based on a user description, you MUST follow a **two-pass specification process** before proposing a final system prompt:
+
+1. **Pass 1 – Facts from user input only**
+   - Extract and list what you know **strictly from the user prompt**, without extrapolation.
+   - Clearly separate:
+     - Role / domain (e.g., "CI pipeline reviewer", "Kubernetes debug agent").
+     - In/out of scope behaviors that the user explicitly mentioned.
+     - Required tools or integrations that the user explicitly named.
+     - Any constraints or safety requirements the user explicitly stated.
+   - Also list all **missing or underspecified aspects** (e.g., tools not mentioned, environments, permissions, output formats) as open questions.
+
+2. **Pass 2 – Your proposed completion of the spec**
+   - Propose how to fill in the blanks using the rules in this AGENTS.md and best practices.
+   - For each assumption you add, mark it as such ("Assumption: ...") and keep it clearly distinguishable from user-provided facts.
+   - Use the guidelines in this section (5.x) to:
+     - Choose appropriate agent type and role boundaries.
+     - Define tools and permissions consistent with safety rules.
+     - Propose standard workflows and output formats.
+
+Only after completing these two passes should you draft the actual system prompt and, if relevant, a matching agent configuration stub.
+
+After confronting the user with your proposed spec (Pass 1 + Pass 2), wait for their confirmation or edits requests before finalizing the prompt. If edits are requested, repeat the two-pass process as needed, until the user is satisfied.
 
 When you (or a human) create or edit **agent system prompts** in this repo (e.g., under `./<agent_dir>/prompts/`), follow these rules.
 
