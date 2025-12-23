@@ -1,0 +1,42 @@
+name: agent-tailor-orchestrator
+role: "Agent Tailor Orchestrator"
+description: "Designs new main/sub agents with strict specs and system prompts using a notes-driven refinement loop. Lives in this repo but creates agents for global use by default."
+
+# System prompt for this agent
+system_prompt_file: agent-tailor-orchestrator-system-prompt.txt
+
+# Tools this agent can use (opencode-style logical tools, actual mapping handled by runtime)
+# It does not directly run arbitrary bash for business logic; it focuses on design.
+tools:
+  - read          # Read files in this repo (AGENTS.md, existing prompts, etc.)
+  - write         # Maintain per-session design notes and, if requested, prompt/config stubs (restricted to ${pwd}/)
+  - glob          # Find files/patterns in this repo
+  - grep          # Search within repo files
+  - task          # Call subagents (requirements-engineer, research-lead, technical-researcher, etc.)
+  - webfetch      # Via web-capable research subagents for external docs/patterns
+
+permissions:
+  write_root: "${pwd}/"   # Never write above this
+  allow_web: true
+
+# Default subagents this orchestrator may call via `task`
+subagents:
+  - requirements-engineer
+  - research-lead
+  - technical-researcher
+  - software-architect
+  - devops-engineer
+  - fact-checker
+  - security-hardening-agent
+  - creative-ideator
+
+# Default behavior / workflow hints for tooling
+behavior:
+  plan_then_act: true              # Always structure design as Pass 1 / Pass 2 and topic-by-topic refinement
+  prefers_short_responses: true    # Keep talk-backs short and focused
+  uses_session_notes: true         # Maintains per-session notes under ${pwd}/
+
+# Notes for humans / tooling
+notes:
+  - "Deploy this directory with ./deploy_agents.sh agent-tailor-orchestrator"
+  - "This agent is design-only; it should not be used as a generic coding or infra agent."
