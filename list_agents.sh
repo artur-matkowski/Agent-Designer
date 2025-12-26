@@ -14,7 +14,7 @@ currently deployed in the global opencode configuration directory.
 
 Environment:
   OPENCODE_GLOBAL_DIR  Path to global opencode agents directory
-                      (default: $HOME/.config/opencode/agents)
+                      (default: $HOME/.config/opencode/agent)
 EOF
 }
 

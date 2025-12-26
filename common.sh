@@ -8,7 +8,7 @@ ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 # Global opencode configuration directory.
 # You can override this per-shell by exporting OPENCODE_GLOBAL_DIR.
-OPENCODE_GLOBAL_DIR="${OPENCODE_GLOBAL_DIR:-$HOME/.config/opencode/agents}"
+OPENCODE_GLOBAL_DIR="${OPENCODE_GLOBAL_DIR:-$HOME/.config/opencode/agent}"
 
 # Directories that should never be treated as agent directories
 IGNORED_AGENT_DIRS=(".git" ".github" "node_modules" "venv" "__pycache__")

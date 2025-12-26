@@ -18,7 +18,7 @@ If no AGENT_DIR is provided, all agent directories under "$ROOT_DIR"
 
 Environment:
   OPENCODE_GLOBAL_DIR  Path to global opencode agents directory
-                      (default: $HOME/.config/opencode/agents)
+                      (default: $HOME/.config/opencode/agent)
 EOF
 }
 
