@@ -378,3 +378,659 @@ When adding new agents or prompt files in this repo:
    - Standard workflows
    - Output format
 4. If you introduce new safety‑critical behaviors (e.g., DB migrations, secret management), extend this `AGENTS.md` with additional global rules so that all agents stay aligned.
+
+---
+
+## 9. OpenCode Agent Configuration Schema (for LLMs)
+
+This section documents how agents are defined in OpenCode config files. It is written for LLMs that need to **interpret agent configs and initialize agents correctly**.
+
+Always treat this section as authoritative for how to read and reason about `agent` configuration in OpenCode.
+
+### 9.1 Where Agent Definitions Live
+
+**JSON config (opencode.json)**
+
+- Agents are defined under the top‑level `agent` object in `opencode.json`.
+- Each property under `agent` is a single agent definition:
+  - Key = agent name (identifier, used for `@name` mentions, etc.).
+  - Value = agent config object.
+
+Example:
+
+```json
+{
+  "$schema": "https://opencode.ai/config.json",
+  "agent": {
+    "build": {
+      "mode": "primary",
+      "model": "anthropic/claude-sonnet-4-20250514",
+      "prompt": "{file:./prompts/build.txt}",
+      "tools": {
+        "write": true,
+        "edit": true,
+        "bash": true
+      }
+    },
+    "plan": {
+      "mode": "primary",
+      "model": "anthropic/claude-haiku-4-20250514",
+      "tools": {
+        "write": false,
+        "edit": false,
+        "bash": false
+      }
+    },
+    "code-reviewer": {
+      "description": "Reviews code for best practices and potential issues",
+      "mode": "subagent",
+      "model": "anthropic/claude-sonnet-4-20250514",
+      "prompt": "You are a code reviewer. Focus on security, performance, and maintainability.",
+      "tools": {
+        "write": false,
+        "edit": false
+      }
+    }
+  }
+}
+```
+
+**Markdown agent files**
+
+- Agents can also be defined as Markdown files with front‑matter.
+- Locations:
+  - Global: `~/.config/opencode/agent/`
+  - Per‑project: `.opencode/agent/`
+- Each Markdown file = one agent:
+  - Filename (without extension) = agent name.
+  - Front‑matter (YAML‑like block between `---`) = config.
+  - Markdown body (after front‑matter) = `prompt` text.
+
+Example (`~/.config/opencode/agent/review.md`):
+
+```markdown
+---
+description: Reviews code for quality and best practices
+mode: subagent
+model: anthropic/claude-sonnet-4-20250514
+temperature: 0.1
+tools:
+  write: false
+  edit: false
+  bash: false
+---
+You are in code review mode. Focus on:
+- Code quality and best practices
+- Potential bugs and edge cases
+- Performance implications
+- Security considerations
+
+Provide constructive feedback without making direct changes.
+```
+
+Interpretation for an LLM:
+
+- `name` = `"review"` (from `review.md`).
+- `description`, `mode`, `model`, `temperature`, `tools` = from front‑matter.
+- `prompt` = everything after the second `---`, as a single text block.
+
+### 9.2 Conceptual Agent Object Schema
+
+The **effective agent object** (after merges and defaults) conceptually looks like:
+
+```ts
+interface AgentConfig {
+  // Identity
+  name: string;                  // from JSON key or markdown filename
+  description: string;           // REQUIRED
+
+  // Behavior and invocation
+  mode?: "primary" | "subagent" | "all";  // default "all"
+  prompt?: string;               // raw text or {file:...} form
+  model?: string;                // provider/model-id
+  temperature?: number;          // 0.0–1.0, model default if missing
+  maxSteps?: number;             // maximum agentic iterations
+  disable?: boolean;             // default false
+
+  // Tool enable/disable (boolean flags)
+  tools?: Record<string, boolean>;
+
+  // Permission rules for tools (especially edit/bash/webfetch)
+  permission?: {
+    edit?: "ask" | "allow" | "deny";
+    bash?:
+      | "ask" | "allow" | "deny"
+      | Record<string, "ask" | "allow" | "deny">; // command/glob rules
+    webfetch?: "ask" | "allow" | "deny";
+    [otherTool: string]: any;    // provider/tool specific shapes allowed
+  };
+
+  // Arbitrary provider-specific / model-specific options
+  [additionalOption: string]: unknown;
+}
+```
+
+Notes:
+
+- Only `description` is strictly required by the docs.
+- Other fields have behavior‑dependent defaults described below.
+- Any unknown keys should be passed through as model options ("Additional").
+
+### 9.3 Identity: `name`
+
+- JSON: `name` is taken from the property name under `agent`.
+  - Example: `"agent": { "review": { ... } }` → `name = "review"`.
+- Markdown: `name` is the filename without extension (e.g. `review.md` → `"review"`).
+
+Use `name` to:
+
+- Identify the agent internally.
+- Allow `@review` mentions.
+- Register it in primary/subagent lists depending on `mode`.
+
+### 9.4 `description` (REQUIRED)
+
+- Short human‑readable description of what the agent does and when to use it.
+- Must be present in JSON or Markdown front‑matter.
+
+Example JSON:
+
+```json
+{
+  "agent": {
+    "review": {
+      "description": "Reviews code for best practices and potential issues"
+    }
+  }
+}
+```
+
+Example Markdown:
+
+```markdown
+---
+description: Performs security audits and identifies vulnerabilities
+mode: subagent
+tools:
+  write: false
+  edit: false
+---
+You are a security expert. Focus on identifying potential security issues.
+```
+
+LLM behavior:
+
+- Use `description` to decide when to auto‑invoke a subagent and how to present it.
+- Treat missing `description` as an invalid/misconfigured agent.
+
+### 9.5 `mode`
+
+- Controls **how the agent can be used**:
+  - `"primary"`: can be used as a primary agent (main assistant in a session).
+  - `"subagent"`: only used as a subagent (invoked by primary or `@mention`).
+  - `"all"`: usable both as primary and subagent.
+- Default: `"all"` **if not specified**.
+
+Example:
+
+```json
+{
+  "agent": {
+    "review": {
+      "description": "Reviews code",
+      "mode": "subagent"
+    }
+  }
+}
+```
+
+Built‑in examples:
+
+- Build agent: `mode: "primary"`
+- Plan agent: `mode: "primary"`
+- General/Explore: `mode: "subagent"`
+
+LLM behavior:
+
+- When enumerating primary agents for session switching:
+  - Include agents with `mode: "primary"` or `mode: "all"`.
+- When listing subagents or resolving `@name`:
+  - Include agents with `mode: "subagent"` or `mode: "all"`.
+
+### 9.6 `prompt`
+
+- Defines the agent’s **system prompt** / behavior instructions.
+
+Two forms:
+
+1. **Inline text (JSON or Markdown body)**
+
+   ```json
+   {
+     "agent": {
+       "code-reviewer": {
+         "description": "Reviews code",
+         "mode": "subagent",
+         "prompt": "You are a code reviewer. Focus on security, performance, and maintainability."
+       }
+     }
+   }
+   ```
+
+   - In Markdown, prompt = everything after front‑matter block.
+
+2. **File reference (JSON only)**
+
+   ```json
+   {
+     "agent": {
+       "review": {
+         "prompt": "{file:./prompts/code-review.txt}"
+       }
+     }
+   }
+   ```
+
+   - Path is relative to the config file.
+   - The engine will read this file and use its content as the prompt.
+
+LLM behavior:
+
+- Treat `prompt` as the system message for that agent.
+- If no `prompt` is set, the agent still exists but relies on generic behavior + `description`.
+
+### 9.7 `model`
+
+- Overrides the default model used by this agent.
+
+Example:
+
+```json
+{
+  "agent": {
+    "plan": {
+      "model": "anthropic/claude-haiku-4-20250514"
+    }
+  }
+}
+```
+
+Semantics:
+
+- Format: `"provider/model-id"` (e.g. `anthropic/claude-sonnet-4-20250514`, `opencode/gpt-5.1-codex`).
+- If **not specified**:
+  - Primary agents: use the **globally configured** model.
+  - Subagents: inherit the **model of the primary agent that invoked them**.
+
+LLM behavior:
+
+- When initializing an agent run, select the correct model according to these rules.
+
+### 9.8 `temperature`
+
+- Controls randomness/creativity (0.0–1.0 typical).
+
+Examples:
+
+```json
+{
+  "agent": {
+    "plan": { "temperature": 0.1 },
+    "creative": { "temperature": 0.8 }
+  }
+}
+```
+
+Behavior:
+
+- Lower (0.0–0.2): deterministic, ideal for planning/code analysis.
+- Medium (0.3–0.5): balanced for general dev tasks.
+- Higher (0.6–1.0): more creative, good for brainstorming.
+
+Defaults:
+
+- If not set: use model‑specific defaults (e.g. 0 for most, 0.55 for some like Qwen, per docs).
+
+LLM behavior:
+
+- Pass `temperature` to the underlying model provider when generating responses.
+
+### 9.9 `maxSteps`
+
+- Limits the number of **agentic iterations** (tool‑using steps) before the agent must return a text‑only answer.
+
+Example:
+
+```json
+{
+  "agent": {
+    "quick-thinker": {
+      "description": "Fast reasoning with limited iterations",
+      "prompt": "You are a quick thinker. Solve problems with minimal steps.",
+      "maxSteps": 5
+    }
+  }
+}
+```
+
+Behavior:
+
+- If `maxSteps` is set:
+  - The agent may call tools up to this many times.
+  - Once the limit is reached, it receives a system instruction to stop tool usage and summarize work + remaining tasks.
+- If not set: the agent continues using tools until the model chooses to stop or the user interrupts.
+
+LLM behavior:
+
+- Track tool calls per request/session and enforce the cap.
+
+### 9.10 `disable`
+
+- If `true`, the agent is disabled and should not be selectable or invoked.
+
+Example:
+
+```json
+{
+  "agent": {
+    "review": {
+      "disable": true
+    }
+  }
+}
+```
+
+LLM behavior:
+
+- Do not show disabled agents in UI lists.
+- Reject attempts to use or `@mention` them (or treat as unknown agent).
+
+### 9.11 `tools`
+
+- Controls which tools are **available** to the agent (boolean enable/disable).
+
+Global + per‑agent example:
+
+```json
+{
+  "$schema": "https://opencode.ai/config.json",
+  "tools": {
+    "write": true,
+    "bash": true
+  },
+  "agent": {
+    "plan": {
+      "tools": {
+        "write": false,
+        "bash": false
+      }
+    }
+  }
+}
+```
+
+Behavior:
+
+- Top‑level `tools` defines **global defaults**.
+- `agent.<name>.tools` overrides global settings **for that agent**.
+- Tool keys are strings matching tool names (e.g. `write`, `edit`, `bash`, `webfetch`, `mymcp_*`).
+
+Wildcards:
+
+```json
+{
+  "agent": {
+    "readonly": {
+      "tools": {
+        "mymcp_*": false,
+        "write": false,
+        "edit": false
+      }
+    }
+  }
+}
+```
+
+- `mymcp_*`: disable all tools whose names start with `mymcp_`.
+
+LLM behavior:
+
+- Before using a tool, check:
+  1. Global `tools` setting (if present).
+  2. Per‑agent `tools` override.
+- `false` means: tool is **not available** (do not call it).
+- `true` means: tool is available, subject to `permission` rules.
+
+### 9.12 `permission`
+
+- Controls **approval/safety** behavior for certain tools, especially `edit`, `bash`, `webfetch`.
+
+Top‑level example:
+
+```json
+{
+  "$schema": "https://opencode.ai/config.json",
+  "permission": {
+    "edit": "deny"
+  }
+}
+```
+
+Per‑agent override:
+
+```json
+{
+  "$schema": "https://opencode.ai/config.json",
+  "permission": {
+    "edit": "deny"
+  },
+  "agent": {
+    "build": {
+      "permission": {
+        "edit": "ask"
+      }
+    }
+  }
+}
+```
+
+Markdown example:
+
+```markdown
+---
+description: Code review without edits
+mode: subagent
+permission:
+  edit: deny
+  bash:
+    "git diff": allow
+    "git log*": allow
+    "*": ask
+  webfetch: deny
+---
+Only analyze code and suggest changes.
+```
+
+Permission values:
+
+- `"ask"` — prompt for approval before running the tool.
+- `"allow"` — allow all operations without approval.
+- `"deny"` — disable tool (no calls allowed).
+
+Special structure for `bash` permissions:
+
+- `bash` can be a single string (`"ask"`, `"allow"`, `"deny"`) or an object mapping command/glob → permission.
+
+Example with command/glob rules:
+
+```json
+{
+  "agent": {
+    "build": {
+      "permission": {
+        "bash": {
+          "git push": "ask"
+        }
+      }
+    }
+  }
+}
+```
+
+Glob example:
+
+```json
+{
+  "agent": {
+    "build": {
+      "permission": {
+        "bash": {
+          "git *": "ask"
+        }
+      }
+    }
+  }
+}
+```
+
+Wildcard for all:
+
+```json
+{
+  "agent": {
+    "build": {
+      "permission": {
+        "bash": {
+          "git status": "allow",
+          "*": "ask"
+        }
+      }
+    }
+  }
+}
+```
+
+Resolution order for `bash` rules:
+
+1. Look for the most specific pattern that matches the command.
+2. If none, fall back to `"*"` if defined.
+3. If no match and no `"*"`, fall back to top‑level `permission.bash` or tool default.
+
+LLM behavior:
+
+- Before calling `edit`, `bash`, `webfetch`, or any permission‑controlled tool:
+  - Resolve the effective permission (global + per‑agent).
+  - If `"deny"`: do not call; explain limitation.
+  - If `"ask"`: request approval through the host permission system.
+  - If `"allow"`: run directly (subject to sandboxing).
+
+### 9.13 Additional Provider/Model Options
+
+- Any field not recognized as part of the agent schema should be passed through to the underlying provider/model.
+
+Example (OpenAI reasoning models):
+
+```json
+{
+  "agent": {
+    "deep-thinker": {
+      "description": "Agent that uses high reasoning effort for complex problems",
+      "model": "openai/gpt-5",
+      "reasoningEffort": "high",
+      "textVerbosity": "low"
+    }
+  }
+}
+```
+
+LLM behavior:
+
+- Do **not** discard these fields.
+- Treat them as model options and forward to the provider if supported.
+
+### 9.14 JSON vs Markdown Parity
+
+Common fields across both formats:
+
+- `description` (required)
+- `mode`
+- `model`
+- `temperature`
+- `tools`
+- `permission`
+- `maxSteps`
+- `disable`
+- Additional model/provider options
+
+Differences:
+
+- JSON:
+  - `prompt` is explicit (inline or `{file:...}`).
+- Markdown:
+  - `prompt` is **implicit**: body content after front‑matter.
+
+LLM behavior:
+
+- For Markdown, treat the body as the definitive system prompt.
+- For JSON, treat the `prompt` field as definitive.
+
+### 9.15 Primary vs Subagents (Behavioral Expectations)
+
+From OpenCode docs:
+
+- **Primary agents**:
+  - Main assistants the user interacts with.
+  - Navigable via Tab / `switch_agent` keybind.
+  - Can access configured tools.
+  - Examples: `build` (full tools), `plan` (restricted, ask/deny edits & bash).
+
+- **Subagents**:
+  - Specialized assistants invoked by primary agents or via `@mention`.
+  - Examples: `general`, `explore`, custom `review`, `docs-writer`, `security-auditor`.
+
+LLM behavior:
+
+- When a primary agent needs help with specialized work, consider invoking the appropriate subagent.
+- Always respect each agent's `tools` and `permission` settings.
+
+### 9.16 Effective Config Resolution (High‑Level)
+
+When interpreting OpenCode configs as an LLM, follow this conceptual process:
+
+1. **Load global config**:
+   - JSON: global `opencode.json`.
+   - Markdown: all agent files under global agent directory.
+
+2. **Load project config (if any)**:
+   - JSON: project `.opencode/config.json` (or equivalent).
+   - Markdown: all agent files under `.opencode/agent/`.
+
+3. **Merge / precedence** (conceptual):
+   - Project‑level config overrides global config for:
+     - Agent definitions with the same name.
+     - Tools/permissions/model/etc.
+   - Per‑agent settings override:
+     - Global tools: `agent.<name>.tools` over top‑level `tools`.
+     - Global permissions: `agent.<name>.permission` over top‑level `permission`.
+
+4. **For each agent**:
+   - Determine `name` (JSON key or Markdown filename).
+   - Collect all fields: `description`, `mode`, `model`, `prompt`, etc.
+   - Apply defaults:
+     - `mode: "all"` if missing.
+     - `disable: false` if missing.
+     - `temperature`: provider/model default if missing.
+     - Model inheritance rules if `model` missing.
+   - Resolve `tools` (global then per‑agent overrides).
+   - Resolve `permission` (global then per‑agent overrides).
+   - For Markdown: build `prompt` from body.
+
+5. **Filter disabled agents**:
+   - Exclude `disable: true` agents from available list.
+
+6. **Initialize runtime representation** that binds:
+   - Agent config (as above).
+   - Associated tools and permission middleware.
+   - Model handle with all options.
+
+This section is intended to guide any LLM working within this repo on **how to read OpenCode agent definitions and honor tools, permissions, and modes correctly**.
