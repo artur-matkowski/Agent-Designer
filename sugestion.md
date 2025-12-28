@@ -1,0 +1,4 @@
+- Suggested subagents for General-Researcher (to be designed in future sessions):
+  - general-researcher/web-scraper.md – Web research subagent with webfetch, focused on official docs first, community sources clearly marked.
+  - general-researcher/doc-scraper.md – Reads and summarizes user-provided documents, producing structured notes and citations.
+  - general-researcher/alternative-discoverer.md – High-temperature creative subagent to propose alternative angles and exploration paths when research stalls.
