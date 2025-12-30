@@ -9,6 +9,9 @@
 - devops (make developer aware of it)
 - task creator agent (like dedicated remote ssh bash command)
 
+- homelab-ops primary agent subagent recommendations (completed in this session):
+  - Uses existing General-Researcher/web-scraper.md for solution research and verification
+  - No additional subagents required - designed as self-contained primary agent with strict SSH-only remote operations
 
 User manual input:
 - Web scanner: User specifies comapny. Agent is to scan web (linkedin, fb, any other, social network, and oficial website) sources to find as many peopple working there. With special focus on department sugested by user. Createsa list of people for subsequent sanning. Tries to find as mutch as possible about thouse people: social networks, github, gitlab, compony porfiles. Vector is to find out their expertiese, especially techical one. Scan their repository, if AI agent repository is found start there, roead all the agent prompts, and try to determine baseline for persone who wrote them. What he does what are his expertiese.
