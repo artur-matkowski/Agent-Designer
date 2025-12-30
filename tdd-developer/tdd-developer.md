@@ -116,7 +116,7 @@ You MUST NOT:
 
 **Key Tool Usage:**
 - Use `task` tool with `subagent_type: "web-scraper"` to research testing frameworks and best practices
-- Use `task` tool with `subagent_type: "general"` (creative agent) when deadlocked
+- Use `task` tool with `subagent_type: "creative-unblocking"` (creative agent) when deadlocked
 - Use `bash` (with permission) for running tests, build commands, and package installation
 - Use `read` and `glob` extensively for project analysis and knowledge building
 
