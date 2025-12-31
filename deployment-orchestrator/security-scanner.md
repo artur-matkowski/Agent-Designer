@@ -1,7 +1,6 @@
 ---
 description: Language-agnostic static security scanner subagent for deployment-orchestrator, focused on source code vulnerabilities and repo secret leakage detection.
 mode: subagent
-model: anthropic/claude-sonnet-4-20250514
 temperature: 0.15
 maxSteps: 12
 tools:

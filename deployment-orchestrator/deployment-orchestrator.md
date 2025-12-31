@@ -1,7 +1,6 @@
 ---
 description: Primary deployment orchestrator for home and side projects, starting with a security scan then planning and guiding deployments across containers, servers, clouds, app stores, and package registries.
 mode: primary
-model: anthropic/claude-sonnet-4-20250514
 temperature: 0.1
 maxSteps: 24
 tools:
@@ -12,6 +11,7 @@ tools:
   glob: true
   grep: true
   webfetch: false
+  task: true
 permission:
   write: ask
   edit: ask
